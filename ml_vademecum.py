@@ -626,7 +626,7 @@ def learn(X, y, estimator, param_grid, outer_split_method, inner_split_method,
 
     outer_scores = []
 
-    best_score = np.inf if minimize_val_scorer else -np.inf
+    best_score = np.inf if minimize_test_scorer else -np.inf
     best_conf = None
 
     for trainval_index, test_index in outer_split_method.split(X, y):
@@ -635,7 +635,7 @@ def learn(X, y, estimator, param_grid, outer_split_method, inner_split_method,
         X_trainval, X_test = X[trainval_index], X[test_index]
         y_trainval, y_test = y[trainval_index], y[test_index]
         
-        best_inner_score = np.inf if minimize_test_scorer else -np.inf
+        best_inner_score = np.inf if minimize_val_scorer else -np.inf
         best_inner_conf = None
         
         for hp_conf in make_hp_configurations(param_grid):
@@ -739,17 +739,17 @@ def fit_and_score(estimator,
     """
     
     estimator.set_params(**hp_conf)
-    conf_scores = []
+    scores = []
             
-    for train_index, val_index in split_method.split(X, y):
+    for train_index, test_index in split_method.split(X, y):
                 
-        X_train, X_val = X[train_index], X[val_index]
-        y_train, y_val = y[train_index], y[val_index]
+        X_train, X_test = X[train_index], X[test_index]
+        y_train, y_test = y[train_index], y[test_index]
 
         estimator.fit(X_train, y_train)
-        conf_scores.append(get_score(X_val, y_val, estimator, scorer))
+        scores.append(get_score(X_test, y_test, estimator, scorer))
 
-    return np.mean(conf_scores), hp_conf
+    return np.mean(scores), hp_conf
 
 
 # Possiamo ora definire la funzione `learn_parallel`.
@@ -815,7 +815,7 @@ def learn_parallel(X, y, estimator, param_grid, outer_split_method, inner_split_
 
     outer_scores = []
 
-    best_score = np.inf if minimize_val_scorer else -np.inf
+    best_score = np.inf if minimize_test_scorer else -np.inf
     best_conf = None
 
     for trainval_index, test_index in outer_split_method.split(X, y):
@@ -823,18 +823,15 @@ def learn_parallel(X, y, estimator, param_grid, outer_split_method, inner_split_
         X_trainval, X_test = X[trainval_index], X[test_index]
         y_trainval, y_test = y[trainval_index], y[test_index]
         
-        best_inner_score = np.inf if minimize_test_scorer else -np.inf
-        best_inner_conf = None
-        
         results = Parallel(n_jobs=n_jobs)(delayed(fit_and_score)(copy.deepcopy(estimator),
                                                               X_trainval, y_trainval,
                                                               hp_conf, inner_split_method,
                                                               scorer=val_scorer)
                                        for hp_conf in make_hp_configurations(param_grid))
         
-        result = sorted(results, key=lambda t: t[0])[0]
-        if check_best(minimize_val_scorer, result[0], best_inner_score):
-                best_inner_score, best_inner_conf = result[0], result[1]
+        best_result = sorted(results, key=lambda t: t[0], reverse= not minimize_val_scorer)[0]
+        best_inner_score = best_result[0]
+        best_inner_conf = best_result[1]
 
         fit_estimator(X_trainval, y_trainval, estimator, best_inner_conf)
         outer_score = get_score(X_test, y_test, estimator, test_scorer)
@@ -842,8 +839,9 @@ def learn_parallel(X, y, estimator, param_grid, outer_split_method, inner_split_
 
         if check_best(minimize_test_scorer, outer_score, best_score):
             best_score, best_conf = outer_score, best_inner_conf
-
+    
     fit_estimator(X, y, estimator, best_conf)
+    
     return estimator, np.mean(outer_scores)
 
 
